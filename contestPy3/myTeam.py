@@ -150,21 +150,22 @@ class OffensiveAgent(ReflexCaptureAgent):
   we give you to get an idea of what an offensive agent might look like,
   but it is by no means the best or only way to build an offensive agent.
   """
+  #defined locations for when OffensiveAgent switches to DefensiveAgent
   x = 15
   y = 8
   def getFeatures(self, gameState, action):
     features = util.Counter()
     successor = self.getSuccessor(gameState, action)
-    if self.red and self.getScore(successor) <= 3 and type(self) == OffensiveAgent:
-      # Switch to defensive agent when red team has 3 or more points
-      self = DefensiveAgent(self.index)
-      return features
-    elif self.getScore(successor) >= 3 and type(self) == OffensiveAgent: 
-      # Switch to defensive agent when blue team has 3 or more points
-      print(features)
-      features['onDefense'] = 1
-      return DefensiveAgent.getFeatures(self, gameState, action)
-    elif type(self) == OffensiveAgent:
+    #if red team and score >= 3
+    if self.red and self.getScore(successor) <=- 3 and isinstance(self, OffensiveAgent):
+        self.__class__ = DefensiveReflexAgent
+        return features
+    #if blue team and score >= 3
+    elif self.getScore(successor) >= 3 and isinstance(self, OffensiveAgent):
+        self.__class__ = DefensiveReflexAgent
+        return features
+    # If score is under 3 and you are an offensive agent continue
+    elif isinstance(self, OffensiveAgent):
       myState = successor.getAgentState(self.index)
       myPos = myState.getPosition()
 
@@ -188,32 +189,30 @@ class OffensiveAgent(ReflexCaptureAgent):
         #return to own side if has 3 food
         if gameState.getAgentState(self.index).numCarrying >= 3:
           features['distanceToFood'] = self.getMazeDistance(myPos, self.start)
-
+        #Identify if a pacman is being chased by an enemy
         opp_fut_state = [successor.getAgentState(i) for i in self.getOpponents(successor)]
         chasers = [p for p in opp_fut_state if p.getPosition() != None and not p.isPacman]
+        
         if len(chasers) > 0:
           if gameState.getAgentState(self.index).numCarrying <= 3:
             team_indexes = self.getTeam(gameState)
             team = [gameState.getAgentState(i) for i in team_indexes]
-            print(gameState.getAgentState(self.index))
-            print(team)
             if self.index == team_indexes[0]:
               teammate = team[0]
             else:
               teammate = team[1]
             close_dist = min([float(self.getMazeDistance(myPos, teammate.getPosition()))])
             if close_dist != 0.0:
-              features['fleeEnemy'] = 0.0
+              features['fleeEnemy'] = 0/close_dist
           else:
             close_dist = min([float(self.getMazeDistance(myPos, c.getPosition())) for c in chasers])
             if close_dist != 0.0:
-              features['fleeEnemy'] = 1/close_dist
+              features['fleeEnemy'] = 1.0/close_dist
+    else:
+      #if you are a defensive agent, switch to offensive agent if score is less than 3 
+      return DefensiveAgent.getFeatures(self, gameState, action)
 
-        # View the action and close distance information for each 
-        # possible move choice.
-      # print("Action: "+str(action))
-      # print("\t\t"+str(close_dist), sys.stderr)
-      return features
+    return features
 
   def getWeights(self, gameState, action):
     return {'successorScore': 100, 'distanceToFood': -1, 'fleeEnemy': -100.0}
@@ -243,9 +242,11 @@ class DefensiveAgent(ReflexCaptureAgent):
     enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
     invaders = [a for a in enemies if a.isPacman and a.getPosition() != None]
     features['numInvaders'] = len(invaders)
+    #if there is an invader in sight calculate distance to that
     if len(invaders) > 0:
       dists = [self.getMazeDistance(myPos, a.getPosition()) for a in invaders]
       features['invaderDistance'] = min(dists)
+    #calculate location for agent to sit at middle of border and wait for invaders
     else:
       error_occurred = True  # Set the flag to True to indicate that an error occurred
       while error_occurred:
@@ -262,6 +263,7 @@ class DefensiveAgent(ReflexCaptureAgent):
               self.y += 0.50
               # Handle the error, e.g., print an error message or take appropriate action.
               print(f"An error occurred: {e}")
+      #calculate distance to middle of border
       dists = self.getMazeDistance(myPos, (self.x, self.y))
       features['invaderDistance'] = dists
 
@@ -270,3 +272,38 @@ class DefensiveAgent(ReflexCaptureAgent):
   def getWeights(self, gameState, action):
     return {'numInvaders': -1000, 'onDefense': 100, 'invaderDistance': -10, 'stop': -100, 'reverse': -2}
           
+class DefensiveReflexAgent(ReflexCaptureAgent):
+  """
+  A reflex agent that keeps its side Pacman-free. Again,
+  this is to give you an idea of what a defensive agent
+  could be like.  It is not the best or only way to make
+  such an agent.
+  """
+
+  def getFeatures(self, gameState, action):
+    features = util.Counter()
+    successor = self.getSuccessor(gameState, action)
+
+    myState = successor.getAgentState(self.index)
+    myPos = myState.getPosition()
+
+    # Computes whether we're on defense (1) or offense (0)
+    features['onDefense'] = 1
+    if myState.isPacman: features['onDefense'] = 0
+
+    # Computes distance to invaders we can see
+    enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
+    invaders = [a for a in enemies if a.isPacman and a.getPosition() != None]
+    features['numInvaders'] = len(invaders)
+    if len(invaders) > 0:
+      dists = [self.getMazeDistance(myPos, a.getPosition()) for a in invaders]
+      features['invaderDistance'] = min(dists)
+
+    if action == Directions.STOP: features['stop'] = 1
+    rev = Directions.REVERSE[gameState.getAgentState(self.index).configuration.direction]
+    if action == rev: features['reverse'] = 1
+
+    return features
+
+  def getWeights(self, gameState, action):
+    return {'numInvaders': -1000, 'onDefense': 100, 'invaderDistance': -10, 'stop': -100, 'reverse': -2}
